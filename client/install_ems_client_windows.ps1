@@ -1,0 +1,150 @@
+﻿<#
+============================================================
+ Автоматизированная установка EMS-апплета SoftWLC (клиент)
+ Целевая ОС: Windows 10 / 11 (x64)
+
+ Скрипт выполняет:
+   1) установку Java 17 (Oracle JDK, MSI, тихий режим);
+   2) установку IcedTea-Web 1.8.8 (MSI, тихий режим);
+   3) ассоциацию файлов *.jnlp с приложением javaws;
+   4) загрузку ems_gui.jnlp с сервера SoftWLC;
+   5) запуск EMS-апплета.
+
+ Использование (PowerShell от имени администратора):
+   Вариант 1 (интерактивный — IP сервера вводится с клавиатуры):
+     powershell -ExecutionPolicy Bypass -File install_ems_client_windows.ps1
+   Вариант 2 (адрес передаётся параметром, без вопросов):
+     powershell -ExecutionPolicy Bypass -File install_ems_client_windows.ps1 -JnlpUrl http://192.168.1.23:8080/ems/jws
+
+ Офлайн-режим (установка из локальных MSI-файлов):
+     powershell -ExecutionPolicy Bypass -File install_ems_client_windows.ps1 `
+         -JdkMsi C:\dist\jdk-17.0.12_windows-x64_bin.msi `
+         -IcedTeaMsi C:\dist\icedtea-web-1.8.8.msi
+============================================================
+#>
+
+param(
+    [string]$JnlpUrl    = "",
+    [string]$JdkUrl     = "https://download.oracle.com/java/17/archive/jdk-17.0.12_windows-x64_bin.msi",
+    [string]$IcedTeaUrl = "https://github.com/AdoptOpenJDK/IcedTea-Web/releases/download/icedtea-web-1.8.8/icedtea-web-1.8.8.msi",
+    [string]$JdkMsi     = "",   # локальный MSI-файл JDK (офлайн-режим)
+    [string]$IcedTeaMsi = ""    # локальный MSI-файл IcedTea-Web (офлайн-режим)
+)
+
+$ErrorActionPreference = "Stop"
+
+function Log([string]$msg)  { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $msg) }
+function Fail([string]$msg) { Write-Host ("[ОШИБКА] {0}" -f $msg) -ForegroundColor Red; exit 1 }
+
+# Установка MSI-пакета в тихом режиме с контролем кода возврата
+function Install-Msi([string]$path, [string]$name) {
+    Log "Установка ${name} (тихий режим)..."
+    $proc = Start-Process msiexec.exe -ArgumentList "/i `"$path`" /qn /norestart" -Wait -PassThru
+    # 0 — успех; 3010 — успех, требуется перезагрузка
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        Fail "Установка ${name} завершилась с кодом $($proc.ExitCode)."
+    }
+    Log "  [OK] ${name} установлен."
+}
+
+# --- 1. Предварительные проверки -----------------------------------
+$identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Fail "Запустите PowerShell от имени администратора."
+}
+
+# Современный TLS для загрузок (актуально для Windows PowerShell 5.1)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# --- 2. Запрос и проверка адреса сервера -----------------------------
+if (-not $JnlpUrl) {
+    while ($true) {
+        $serverIp = Read-Host "Введите IP-адрес сервера SoftWLC (например, 192.168.1.23)"
+        if ($serverIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
+            Write-Host "Некорректный формат IP-адреса, попробуйте ещё раз."
+            continue
+        }
+        $JnlpUrl = "http://${serverIp}:8080/ems/jws"
+        Log "Проверка доступности сервера ${JnlpUrl}..."
+        $reachable = Test-NetConnection -ComputerName $serverIp -Port 8080 `
+                     -InformationLevel Quiet -WarningAction SilentlyContinue
+        if ($reachable) { Log "Сервер SoftWLC доступен."; break }
+        $answer = Read-Host "Сервер не отвечает. Продолжить с этим адресом? [y/N]"
+        if ($answer -match '^[YyДд]$') { break }
+    }
+}
+
+$tmpDir = Join-Path $env:TEMP "softwlc-client"
+New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+
+# --- 3. Установка Java 17 ---------------------------------------------
+Log "[1/5] Проверка наличия JDK 17..."
+$jdkInstalled = Get-ChildItem "C:\Program Files\Java" -Directory -Filter "jdk-17*" -ErrorAction SilentlyContinue
+if ($jdkInstalled) {
+    Log "JDK 17 уже установлен ($($jdkInstalled[0].Name)), пропуск."
+} else {
+    if ($JdkMsi -and (Test-Path $JdkMsi)) {
+        Log "Используется локальный установщик: $JdkMsi"
+        $jdkPath = $JdkMsi
+    } else {
+        $jdkPath = Join-Path $tmpDir "jdk17.msi"
+        Log "Загрузка JDK 17: $JdkUrl"
+        try { Invoke-WebRequest -Uri $JdkUrl -OutFile $jdkPath -UseBasicParsing }
+        catch { Fail "Не удалось загрузить JDK. Укажите локальный файл параметром -JdkMsi." }
+    }
+    Install-Msi $jdkPath "Oracle JDK 17"
+}
+
+# --- 4. Установка IcedTea-Web ------------------------------------------
+Log "[2/5] Проверка наличия IcedTea-Web..."
+$javawsKnown = @(
+    "C:\Program Files\IcedTea-Web\bin\javaws.exe",
+    "C:\Program Files (x86)\IcedTea-Web\bin\javaws.exe",
+    "C:\Program Files\AdoptOpenJDK\IcedTea-Web\bin\javaws.exe"
+)
+$javaws = $javawsKnown | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($javaws) {
+    Log "IcedTea-Web уже установлен, пропуск."
+} else {
+    if ($IcedTeaMsi -and (Test-Path $IcedTeaMsi)) {
+        Log "Используется локальный установщик: $IcedTeaMsi"
+        $icedteaPath = $IcedTeaMsi
+    } else {
+        $icedteaPath = Join-Path $tmpDir "icedtea-web.msi"
+        Log "Загрузка IcedTea-Web 1.8.8: $IcedTeaUrl"
+        try { Invoke-WebRequest -Uri $IcedTeaUrl -OutFile $icedteaPath -UseBasicParsing }
+        catch { Fail "Не удалось загрузить IcedTea-Web. Укажите локальный файл параметром -IcedTeaMsi." }
+    }
+    Install-Msi $icedteaPath "IcedTea-Web 1.8.8"
+    $javaws = $javawsKnown | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+
+# Если javaws не найден по типовым путям — поиск по каталогу Program Files
+if (-not $javaws) {
+    Log "Поиск javaws.exe в каталоге Program Files..."
+    $found = Get-ChildItem "C:\Program Files" -Recurse -Filter "javaws.exe" `
+             -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { $javaws = $found.FullName }
+}
+if (-not $javaws) { Fail "Не удалось найти javaws.exe после установки IcedTea-Web." }
+Log "Приложение javaws: $javaws"
+
+# --- 5. Ассоциация файлов *.jnlp с javaws --------------------------------
+Log "[3/5] Настройка ассоциации файлов *.jnlp с javaws..."
+cmd /c "assoc .jnlp=JNLPFile" | Out-Null
+cmd /c "ftype JNLPFile=`"$javaws`" `"%1`"" | Out-Null
+Log "  [OK] Файлы *.jnlp ассоциированы с javaws."
+
+# --- 6. Загрузка JNLP-файла -----------------------------------------------
+Log "[4/5] Загрузка ems_gui.jnlp с ${JnlpUrl}..."
+$downloads = Join-Path ([Environment]::GetFolderPath('UserProfile')) "Downloads"
+New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+$jnlpFile = Join-Path $downloads "ems_gui.jnlp"
+try { Invoke-WebRequest -Uri $JnlpUrl -OutFile $jnlpFile -UseBasicParsing }
+catch { Fail "Не удалось загрузить JNLP-файл. Проверьте доступность сервера SoftWLC." }
+
+# --- 7. Запуск EMS-апплета --------------------------------------------------
+Log "[5/5] Запуск EMS-апплета..."
+Start-Process -FilePath $javaws -ArgumentList "`"$jnlpFile`""
+Log "EMS-апплет запущен. Используйте учётные данные, выданные при установке SoftWLC."
