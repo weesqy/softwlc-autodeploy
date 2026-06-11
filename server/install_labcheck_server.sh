@@ -23,7 +23,7 @@ set -euo pipefail
 
 # URL приложения в репозитории (используется, если путь не передан).
 # ВНИМАНИЕ: подставьте адрес вашего репозитория.
-APP_URL="${APP_URL:-https://raw.githubusercontent.com/<логин>/softwlc-autodeploy/main/server/app.js}"
+APP_URL="${APP_URL:-https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/server/app.js}"
 
 APP_SOURCE="${1:-}"
 APP_DIR="/opt/labcheck"
