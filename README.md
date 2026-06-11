@@ -20,10 +20,10 @@
 
 ```bash
 # 1. Контроллер SoftWLC
-wget -qO- https://raw.githubusercontent.com/ЛОГИН/softwlc-autodeploy/main/server/install_softwlc_server.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/server/install_softwlc_server.sh | sudo bash
 
 # 2. Приложение проверки лабораторных работ
-wget -qO- https://raw.githubusercontent.com/ЛОГИН/softwlc-autodeploy/main/server/install_labcheck_server.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/server/install_labcheck_server.sh | sudo bash
 ```
 
 После установки:
@@ -35,13 +35,13 @@ wget -qO- https://raw.githubusercontent.com/ЛОГИН/softwlc-autodeploy/main/s
 ### Ubuntu 22.04
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/ЛОГИН/softwlc-autodeploy/main/client/install_ems_client_ubuntu.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/client/install_ems_client_ubuntu.sh | sudo bash
 ```
 
 ### Astra Linux 1.7.6
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/ЛОГИН/softwlc-autodeploy/main/client/install_ems_client_astra.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/client/install_ems_client_astra.sh | sudo bash
 ```
 
 Сценарий запросит IP-адрес сервера SoftWLC, проверит его доступность,
@@ -50,7 +50,7 @@ wget -qO- https://raw.githubusercontent.com/ЛОГИН/softwlc-autodeploy/main/c
 Для полностью автоматического режима (без вопросов) адрес передаётся аргументом:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/ЛОГИН/softwlc-autodeploy/main/client/install_ems_client_ubuntu.sh | sudo bash -s -- http://192.168.1.23:8080/ems/jws
+wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/client/install_ems_client_ubuntu.sh | sudo bash -s -- http://192.168.1.23:8080/ems/jws
 ```
 
 ## Офлайн-установка (изолированные стенды)
