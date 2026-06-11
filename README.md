@@ -13,6 +13,7 @@
 | `server/app.js` | Приложение для проверки лабораторных работ | — |
 | `client/install_ems_client_ubuntu.sh` | Установка EMS-апплета (Java 17, IcedTea-Web) | Ubuntu 22.04 |
 | `client/install_ems_client_astra.sh` | Установка EMS-апплета (Java 17, IcedTea-Web) | Astra Linux 1.7.6 |
+| `client/install_ems_client_windows.ps1` | Установка EMS-апплета (Java 17, IcedTea-Web, ассоциация JNLP) | Windows 10 / 11 |
 
 ## Развёртывание сервера
 
@@ -42,6 +43,15 @@ wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/clien
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/client/install_ems_client_astra.sh | sudo bash
+```
+
+### Windows 10 / 11
+
+В консоли PowerShell, запущенной от имени администратора:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/client/install_ems_client_windows.ps1 -OutFile install_ems_client_windows.ps1
+powershell -ExecutionPolicy Bypass -File install_ems_client_windows.ps1
 ```
 
 Сценарий запросит IP-адрес сервера SoftWLC, проверит его доступность,
