@@ -50,8 +50,8 @@ wget -qO- https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/clien
 В консоли PowerShell, запущенной от имени администратора:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/client/install_ems_client_windows.ps1 -OutFile install_ems_client_windows.ps1
-powershell -ExecutionPolicy Bypass -File install_ems_client_windows.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/weesqy/softwlc-autodeploy/main/client/install_ems_client_windows.ps1 -OutFile $env:USERPROFILE\Downloads\install_ems_client_windows.ps1
+powershell -ExecutionPolicy Bypass -File $env:USERPROFILE\Downloads\install_ems_client_windows.ps1
 ```
 
 Сценарий запросит IP-адрес сервера SoftWLC, проверит его доступность,
