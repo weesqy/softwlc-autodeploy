@@ -21,7 +21,7 @@ set -euo pipefail
 
 # URL установочного сценария SoftWLC (значение по умолчанию).
 # ВНИМАНИЕ: подставьте сюда актуальный адрес из репозитория Eltex.
-DEFAULT_SOFTWLC_URL="https://archive.eltex-co.ru/wireless/help/softwlc-latest/eltex-softwlc-helper-latest.sh"
+DEFAULT_SOFTWLC_URL="https://<репозиторий-eltex>/install_softwlc.sh"
 
 # Аргумент командной строки имеет приоритет над значением по умолчанию.
 SOFTWLC_URL="${1:-$DEFAULT_SOFTWLC_URL}"
@@ -29,21 +29,40 @@ SOFTWLC_URL="${1:-$DEFAULT_SOFTWLC_URL}"
 log()  { echo -e "[$(date '+%H:%M:%S')] $*"; }
 fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
 
+# На свежезагруженной системе фоновая служба автообновлений
+# (unattended-upgrades) может удерживать блокировку менеджера пакетов.
+# Ожидаем её освобождения, чтобы команды apt не завершались ошибкой.
+wait_for_apt() {
+    command -v fuser >/dev/null 2>&1 || return 0
+    if fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        log "Менеджер пакетов занят фоновым обновлением системы, ожидание освобождения..."
+        while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; do
+            sleep 5
+        done
+        log "Менеджер пакетов освободился, продолжаем."
+    fi
+}
+
+
 # --- 1. Предварительные проверки -----------------------------------
 [[ $EUID -eq 0 ]] || fail "Запустите скрипт с правами суперпользователя: sudo $0"
 
 [[ "$SOFTWLC_URL" != *"<репозиторий-eltex>"* ]] || fail "В скрипте не задан реальный URL установщика SoftWLC.
 Отредактируйте переменную DEFAULT_SOFTWLC_URL или передайте URL аргументом."
 
+wait_for_apt
+log "Обновление списка пакетов..."
+apt-get update -y || log "[ВНИМАНИЕ] Не удалось обновить списки пакетов, продолжаем."
+
 command -v wget >/dev/null 2>&1 || {
     log "Утилита wget не найдена, выполняется установка..."
-    apt-get update -y && apt-get install -y wget
+    apt-get install -y wget
 }
 
 # --- 2. Загрузка установочного сценария -----------------------------
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
-INSTALLER="$WORK_DIR/eltex-softwlc-helper-latest.sh"
+INSTALLER="$WORK_DIR/install_softwlc.sh"
 
 log "Загрузка установочного сценария SoftWLC..."
 wget -O "$INSTALLER" "$SOFTWLC_URL" \
