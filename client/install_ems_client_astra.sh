@@ -85,21 +85,26 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 # --- 2. Установка JDK 17 из архива -----------------------------------
-log "[1/6] Получение JDK 17..."
-if [[ -n "$JDK_TARBALL" && -f "$JDK_TARBALL" ]]; then
-    log "Используется локальный архив: $JDK_TARBALL"
-    cp "$JDK_TARBALL" "$TMP_DIR/jdk17.tar.gz"
+if [[ -d "$JAVA_HOME_DIR" ]]; then
+    log "[1/6] JDK 17 уже установлен в ${JAVA_HOME_DIR}, пропуск загрузки."
+    log "[2/6] Настройка окружения..."
 else
-    log "Загрузка JDK 17: $JDK_URL"
-    wget -O "$TMP_DIR/jdk17.tar.gz" "$JDK_URL" \
-        || fail "Не удалось загрузить JDK. Укажите локальный архив через JDK_TARBALL."
-fi
+    log "[1/6] Получение JDK 17..."
+    if [[ -n "$JDK_TARBALL" && -f "$JDK_TARBALL" ]]; then
+        log "Используется локальный архив: $JDK_TARBALL"
+        cp "$JDK_TARBALL" "$TMP_DIR/jdk17.tar.gz"
+    else
+        log "Загрузка JDK 17: $JDK_URL"
+        wget -O "$TMP_DIR/jdk17.tar.gz" "$JDK_URL" \
+            || fail "Не удалось загрузить JDK. Укажите локальный архив через JDK_TARBALL."
+    fi
 
-log "[2/6] Распаковка JDK в ${JVM_DIR} и настройка окружения..."
-mkdir -p "$JVM_DIR"
-tar -xzf "$TMP_DIR/jdk17.tar.gz" -C "$JVM_DIR/"
-[[ -d "$JAVA_HOME_DIR" ]] || fail "После распаковки не найден каталог ${JAVA_HOME_DIR}.
+    log "[2/6] Распаковка JDK в ${JVM_DIR} и настройка окружения..."
+    mkdir -p "$JVM_DIR"
+    tar -xzf "$TMP_DIR/jdk17.tar.gz" -C "$JVM_DIR/"
+    [[ -d "$JAVA_HOME_DIR" ]] || fail "После распаковки не найден каталог ${JAVA_HOME_DIR}.
 Проверьте версию архива (ожидается ${JDK_VERSION})."
+fi
 
 # Переменные окружения для всех пользователей системы
 cat > /etc/profile.d/java.sh <<EOF
@@ -119,23 +124,26 @@ update-alternatives --set javac "${JAVA_HOME_DIR}/bin/javac"
 java -version
 
 # --- 4. Установка IcedTea-Web -----------------------------------------
-log "[4/6] Установка IcedTea-Web 1.8.8..."
-if [[ -n "$ICEDTEA_ZIP" && -f "$ICEDTEA_ZIP" ]]; then
-    log "Используется локальный архив: $ICEDTEA_ZIP"
-    cp "$ICEDTEA_ZIP" "$TMP_DIR/icedtea.zip"
+if [[ -x "${ICEDTEA_DIR}/icedtea-web-image/bin/javaws" ]]; then
+    log "[4/6] IcedTea-Web уже установлен в ${ICEDTEA_DIR}, пропуск загрузки и распаковки."
 else
-    log "Загрузка архива: $ICEDTEA_URL"
-    wget -O "$TMP_DIR/icedtea.zip" "$ICEDTEA_URL" \
-        || fail "Не удалось загрузить IcedTea-Web. Укажите локальный архив через ICEDTEA_ZIP."
+    log "[4/6] Установка IcedTea-Web 1.8.8..."
+    if [[ -n "$ICEDTEA_ZIP" && -f "$ICEDTEA_ZIP" ]]; then
+        log "Используется локальный архив: $ICEDTEA_ZIP"
+        cp "$ICEDTEA_ZIP" "$TMP_DIR/icedtea.zip"
+    else
+        log "Загрузка архива: $ICEDTEA_URL"
+        wget -O "$TMP_DIR/icedtea.zip" "$ICEDTEA_URL" \
+            || fail "Не удалось загрузить IcedTea-Web. Укажите локальный архив через ICEDTEA_ZIP."
+    fi
+
+    cd "$TMP_DIR"
+    unzip -q icedtea.zip
+    [[ -d icedtea-web-image ]] || fail "После распаковки не найден каталог icedtea-web-image."
+
+    mkdir -p "$ICEDTEA_DIR"
+    mv icedtea-web-image "$ICEDTEA_DIR/"
 fi
-
-cd "$TMP_DIR"
-unzip -q icedtea.zip
-[[ -d icedtea-web-image ]] || fail "После распаковки не найден каталог icedtea-web-image."
-
-mkdir -p "$ICEDTEA_DIR"
-rm -rf "${ICEDTEA_DIR}/icedtea-web-image"
-mv icedtea-web-image "$ICEDTEA_DIR/"
 
 for tool in javaws itweb-settings policyeditor; do
     update-alternatives --install "/usr/bin/${tool}" "$tool" \
