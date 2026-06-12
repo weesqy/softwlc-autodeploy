@@ -66,9 +66,15 @@ DOWNLOAD_DIR="${TARGET_HOME}/Downloads"
 mkdir -p "$DOWNLOAD_DIR"
 
 # --- 2. Установка Java 17 -------------------------------------------
-log "[1/6] Обновление пакетов и установка OpenJDK 17..."
+log "[1/6] Проверка наличия OpenJDK 17..."
 apt-get update -y
-apt-get install -y openjdk-17-jdk unzip wget ca-certificates
+if dpkg -s openjdk-17-jdk >/dev/null 2>&1; then
+    log "OpenJDK 17 уже установлен, пропуск установки."
+    apt-get install -y unzip wget ca-certificates
+else
+    log "Установка OpenJDK 17..."
+    apt-get install -y openjdk-17-jdk unzip wget ca-certificates
+fi
 
 JAVA_HOME_DIR="/usr/lib/jvm/java-17-openjdk-amd64"
 JAVA_BIN="${JAVA_HOME_DIR}/bin/java"
@@ -80,26 +86,29 @@ update-alternatives --set java "$JAVA_BIN" || true
 java -version
 
 # --- 3. Установка IcedTea-Web ---------------------------------------
-log "[3/6] Установка IcedTea-Web 1.8.8..."
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-if [[ -n "$ICEDTEA_ZIP" && -f "$ICEDTEA_ZIP" ]]; then
-    log "Используется локальный архив: $ICEDTEA_ZIP"
-    cp "$ICEDTEA_ZIP" "$TMP_DIR/icedtea.zip"
+if [[ -x "${ICEDTEA_DIR}/icedtea-web-image/bin/javaws" ]]; then
+    log "[3/6] IcedTea-Web уже установлен в ${ICEDTEA_DIR}, пропуск загрузки и распаковки."
 else
-    log "Загрузка архива: $ICEDTEA_URL"
-    wget -O "$TMP_DIR/icedtea.zip" "$ICEDTEA_URL" \
-        || fail "Не удалось загрузить IcedTea-Web. Укажите локальный архив через ICEDTEA_ZIP."
+    log "[3/6] Установка IcedTea-Web 1.8.8..."
+    if [[ -n "$ICEDTEA_ZIP" && -f "$ICEDTEA_ZIP" ]]; then
+        log "Используется локальный архив: $ICEDTEA_ZIP"
+        cp "$ICEDTEA_ZIP" "$TMP_DIR/icedtea.zip"
+    else
+        log "Загрузка архива: $ICEDTEA_URL"
+        wget -O "$TMP_DIR/icedtea.zip" "$ICEDTEA_URL" \
+            || fail "Не удалось загрузить IcedTea-Web. Укажите локальный архив через ICEDTEA_ZIP."
+    fi
+
+    cd "$TMP_DIR"
+    unzip -q icedtea.zip
+    [[ -d icedtea-web-image ]] || fail "После распаковки не найден каталог icedtea-web-image."
+
+    mkdir -p "$ICEDTEA_DIR"
+    mv icedtea-web-image "$ICEDTEA_DIR/"
 fi
-
-cd "$TMP_DIR"
-unzip -q icedtea.zip
-[[ -d icedtea-web-image ]] || fail "После распаковки не найден каталог icedtea-web-image."
-
-mkdir -p "$ICEDTEA_DIR"
-rm -rf "${ICEDTEA_DIR}/icedtea-web-image"
-mv icedtea-web-image "$ICEDTEA_DIR/"
 
 # --- 4. Настройка альтернатив IcedTea-Web ----------------------------
 log "[4/6] Настройка системных альтернатив IcedTea-Web..."
