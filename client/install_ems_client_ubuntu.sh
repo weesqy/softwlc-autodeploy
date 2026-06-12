@@ -124,8 +124,18 @@ rm -rf "${TARGET_HOME}/.cache/icedtea-web/cache/" || true
 # --- 5. Загрузка JNLP-файла -------------------------------------------
 log "[5/6] Загрузка ems_gui.jnlp с ${JNLP_URL}..."
 JNLP_FILE="${DOWNLOAD_DIR}/ems_gui.jnlp"
-wget -O "$JNLP_FILE" "$JNLP_URL" \
-    || fail "Не удалось загрузить JNLP-файл. Проверьте доступность сервера SoftWLC."
+JNLP_OK=0
+for attempt in $(seq 1 10); do
+    wget -q -O "$JNLP_FILE" "$JNLP_URL" || true
+    if [[ -s "$JNLP_FILE" ]] && grep -q '<jnlp' "$JNLP_FILE"; then
+        JNLP_OK=1
+        break
+    fi
+    log "EMS-сервер ещё не готов (попытка ${attempt} из 10), повтор через 15 секунд..."
+    sleep 15
+done
+[[ "$JNLP_OK" -eq 1 ]] || fail "Сервер не вернул корректный JNLP-файл.
+Убедитесь, что SoftWLC полностью запущен (после перезагрузки сервера запуск занимает несколько минут), и повторите."
 chown "${TARGET_USER}:${TARGET_USER}" "$JNLP_FILE"
 
 # --- 6. Запуск EMS-апплета --------------------------------------------
