@@ -33,6 +33,21 @@ SERVICE_NAME="labcheck"
 log()  { echo -e "[$(date '+%H:%M:%S')] $*"; }
 fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
 
+# На свежезагруженной системе фоновая служба автообновлений
+# (unattended-upgrades) может удерживать блокировку менеджера пакетов.
+# Ожидаем её освобождения, чтобы команды apt не завершались ошибкой.
+wait_for_apt() {
+    command -v fuser >/dev/null 2>&1 || return 0
+    if fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        log "Менеджер пакетов занят фоновым обновлением системы, ожидание освобождения..."
+        while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; do
+            sleep 5
+        done
+        log "Менеджер пакетов освободился, продолжаем."
+    fi
+}
+
+
 # --- 1. Предварительные проверки -----------------------------------
 [[ $EUID -eq 0 ]] || fail "Запустите скрипт с правами суперпользователя: sudo $0"
 
@@ -40,12 +55,15 @@ fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
 systemctl is-active --quiet mysql 2>/dev/null \
     || log "[ВНИМАНИЕ] Служба MySQL не активна. Приложение требует установленного SoftWLC."
 
+wait_for_apt
+log "Обновление списка пакетов..."
+apt-get update -y || log "[ВНИМАНИЕ] Не удалось обновить списки пакетов, продолжаем."
+
 # --- 2. Установка Node.js 20 LTS ------------------------------------
 if command -v node >/dev/null 2>&1 && [[ "$(node -v | cut -d. -f1 | tr -d v)" -ge 20 ]]; then
     log "Node.js $(node -v) уже установлен, пропуск."
 else
     log "Установка Node.js 20 LTS из репозитория NodeSource..."
-    apt-get update -y
     apt-get install -y curl wget ca-certificates
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt-get install -y nodejs
