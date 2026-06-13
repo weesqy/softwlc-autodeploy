@@ -20,10 +20,13 @@ set -euo pipefail
 # Использование:
 #   Вариант 1 (локальный файл, путь аргументом):
 #     sudo ./install_labcheck_server.sh /путь/к/app.js
-#   Вариант 2 (локальный файл app.js в одной папке с программой):
+#   Вариант 2 (локальный файл app.js рядом со сценарием):
 #     sudo ./install_labcheck_server.sh
 #   Вариант 3 (внутренний источник, например веб-сервер организации):
 #     sudo APP_URL=http://<внутренний-сервер>/app.js ./install_labcheck_server.sh
+#
+# Если ни один из источников не задан заранее, скрипт интерактивно
+# предлагает выбрать способ доставки приложения (локальный файл / URL).
 # ============================================================
 
 # Внутренний URL приложения (только если задан явно через окружение)
@@ -39,6 +42,27 @@ SERVICE_NAME="labcheck"
 
 log()  { echo -e "[$(date '+%H:%M:%S')] $*"; }
 fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
+
+# Преобразует введённый путь в путь к файлу: принимает путь к файлу
+# (возвращает как есть) либо к каталогу (ищет в нём файл по маске).
+resolve_local_file() {
+    local input="${1%/}" mask="$2"
+    if [[ -f "$input" ]]; then printf '%s' "$input"; return 0; fi
+    if [[ -d "$input" ]]; then
+        local matches=()
+        while IFS= read -r -d '' f; do matches+=("$f"); done \
+            < <(find "$input" -maxdepth 1 -type f -name "$mask" -print0 2>/dev/null)
+        if [[ ${#matches[@]} -eq 1 ]]; then printf '%s' "${matches[0]}"; return 0
+        elif [[ ${#matches[@]} -eq 0 ]]; then
+            echo "В каталоге $input не найден файл по шаблону $mask. Попробуйте ещё раз." >&2; return 1
+        else
+            echo "В каталоге $input найдено несколько подходящих файлов:" >&2
+            printf '  %s\n' "${matches[@]}" >&2
+            echo "Укажите полный путь к нужному файлу." >&2; return 1
+        fi
+    fi
+    echo "Путь не существует: $input. Попробуйте ещё раз." >&2; return 1
+}
 
 # На свежезагруженной системе фоновая служба автообновлений
 # (unattended-upgrades) может удерживать блокировку менеджера пакетов.
@@ -98,6 +122,33 @@ fi
 log "Версии: node $(node -v), npm $(npm -v)"
 
 # --- 3. Размещение приложения ---------------------------------------
+# Если источник приложения не задан заранее (аргументом, файлом app.js
+# рядом со сценарием или переменной APP_URL) — предлагаем выбрать способ
+# доставки интерактивно.
+if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -e /dev/tty ]]; then
+    echo ""
+    echo "Укажите источник приложения для проверки лабораторных работ:"
+    echo "  1) Локальный файл app.js (по умолчанию)"
+    echo "  2) Внутренний источник по URL (веб-сервер организации)"
+    read -rp "Ваш выбор [1/2]: " APP_MODE </dev/tty
+    if [[ "$APP_MODE" == "2" ]]; then
+        while true; do
+            read -rp "Укажите URL приложения (например, http://192.168.1.50/app.js): " APP_URL </dev/tty
+            [[ -n "$APP_URL" ]] && break
+            echo "Адрес не может быть пустым. Попробуйте ещё раз."
+        done
+    else
+        echo "Можно указать путь к файлу либо к папке, в которой он находится."
+        while true; do
+            echo "  Пример файла: /home/${SUDO_USER:-dmitry}/app.js"
+            echo "  Пример папки: /home/${SUDO_USER:-dmitry}"
+            read -rp "Путь к app.js: " APP_INPUT </dev/tty
+            APP_SOURCE="$(resolve_local_file "$APP_INPUT" 'app.js')" && break
+        done
+        echo "Файл приложения найден: $APP_SOURCE"
+    fi
+fi
+
 mkdir -p "$APP_DIR"
 if [[ -n "$APP_SOURCE" ]]; then
     [[ -f "$APP_SOURCE" ]] || fail "Файл приложения не найден: $APP_SOURCE"
