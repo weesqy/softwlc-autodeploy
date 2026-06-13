@@ -92,6 +92,26 @@ wait_for_apt() {
     fi
 }
 
+# Запускает обновление списков пакетов и распознаёт типичную ошибку,
+# связанную с неверным системным временем ("Release file ... is not valid yet").
+# Такое случается на виртуальных машинах, время которых отстало от реального
+# (например, после длительного простоя или отката к снимку). Время не меняется
+# автоматически — выводится пояснение со способом исправления.
+apt_update_checked() {
+    local out
+    out="$(apt-get update -y 2>&1)" || true
+    echo "$out"
+    if echo "$out" | grep -qiE 'not valid yet|Release file.*is not valid'; then
+        echo ""
+        log "[ВНИМАНИЕ] Похоже, системное время неверно (отстаёт от реального),"
+        log "           из-за чего менеджер пакетов отклонил данные репозитория."
+        log "           Синхронизируйте время и повторите запуск, например:"
+        log "             sudo timedatectl set-ntp true"
+        log "           либо задайте время вручную:"
+        log "             sudo timedatectl set-time \"ГГГГ-ММ-ДД ЧЧ:ММ:СС\""
+    fi
+}
+
 
 # --- 1. Предварительные проверки -----------------------------------
 [[ $EUID -eq 0 ]] || fail "Запустите скрипт через sudo."
@@ -194,7 +214,7 @@ else
     # Онлайн-режим: Java ставится из штатного репозитория Ubuntu.
     log "[1/6] Проверка наличия OpenJDK 17..."
     wait_for_apt
-    apt-get update -y
+    apt_update_checked
     if dpkg -s openjdk-17-jdk >/dev/null 2>&1; then
         log "OpenJDK 17 уже установлен, пропуск установки."
         apt-get install -y unzip wget ca-certificates
