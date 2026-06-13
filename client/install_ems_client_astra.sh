@@ -22,6 +22,7 @@ set -euo pipefail
 # Использование:
 #   Вариант 1 (интерактивный — IP сервера вводится с клавиатуры):
 #     sudo ./install_ems_client_astra.sh
+#     (дополнительно интерактивно предлагается выбрать режим: онлайн или офлайн)
 #   Вариант 2 (адрес передаётся аргументом, без вопросов):
 #     sudo ./install_ems_client_astra.sh http://192.168.1.23:8080/ems/jws
 #
@@ -86,6 +87,32 @@ sudo $0 http://<ip-сервера>:8080/ems/jws"
         read -rp "Сервер не отвечает. Продолжить с этим адресом? [y/N]: " ANSWER </dev/tty
         [[ "$ANSWER" =~ ^[YyДд]$ ]] && break
     done
+fi
+
+# Если источники компонентов не заданы заранее (JDK_TARBALL / ICEDTEA_ZIP),
+# предлагаем выбрать режим установки: онлайн или офлайн. В офлайн-режиме
+# запрашиваются пути к локальным архивам JDK и IcedTea-Web.
+if [[ -z "$JDK_TARBALL" && -z "$ICEDTEA_ZIP" && -e /dev/tty ]]; then
+    echo ""
+    echo "Выберите режим установки компонентов:"
+    echo "  1) Онлайн  — загрузка из сети Интернет (по умолчанию)"
+    echo "  2) Офлайн  — установка из локальных файлов (для изолированной сети)"
+    read -rp "Ваш выбор [1/2]: " INSTALL_MODE </dev/tty
+    if [[ "$INSTALL_MODE" == "2" ]]; then
+        while true; do
+            read -rp "Укажите путь к архиву JDK 17 (${JDK_VERSION}, .tar.gz): " JDK_TARBALL </dev/tty
+            [[ -f "$JDK_TARBALL" ]] && { echo "Архив JDK найден."; break; }
+            echo "Файл не найден: $JDK_TARBALL. Попробуйте ещё раз."
+        done
+        while true; do
+            read -rp "Укажите путь к архиву IcedTea-Web (icedtea-web-1.8.8.linux.bin.zip): " ICEDTEA_ZIP </dev/tty
+            [[ -f "$ICEDTEA_ZIP" ]] && { echo "Архив IcedTea-Web найден."; break; }
+            echo "Файл не найден: $ICEDTEA_ZIP. Попробуйте ещё раз."
+        done
+        log "Выбран офлайн-режим установки компонентов."
+    else
+        log "Выбран онлайн-режим установки компонентов."
+    fi
 fi
 
 TARGET_USER="$SUDO_USER"
