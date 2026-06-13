@@ -34,6 +34,38 @@ ICEDTEA_URL="${ICEDTEA_URL:-$ICEDTEA_DEFAULT_URL}"
 log()  { echo -e "[$(date '+%H:%M:%S')] $*"; }
 fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
 
+# Преобразует введённый путь в путь к файлу. Принимает:
+#   - путь к существующему файлу — возвращает его как есть;
+#   - путь к каталогу — ищет в нём файл по маске (второй аргумент).
+# При неоднозначности или отсутствии файла возвращает ненулевой код,
+# выводя пояснение, чтобы вызывающий цикл повторил запрос.
+resolve_local_file() {
+    local input="${1%/}" mask="$2"
+    if [[ -f "$input" ]]; then
+        printf '%s' "$input"
+        return 0
+    fi
+    if [[ -d "$input" ]]; then
+        local matches=()
+        while IFS= read -r -d '' f; do matches+=("$f"); done \
+            < <(find "$input" -maxdepth 1 -type f -name "$mask" -print0 2>/dev/null)
+        if [[ ${#matches[@]} -eq 1 ]]; then
+            printf '%s' "${matches[0]}"
+            return 0
+        elif [[ ${#matches[@]} -eq 0 ]]; then
+            echo "В каталоге $input не найден файл по шаблону $mask. Попробуйте ещё раз." >&2
+            return 1
+        else
+            echo "В каталоге $input найдено несколько подходящих файлов:" >&2
+            printf '  %s\n' "${matches[@]}" >&2
+            echo "Укажите полный путь к нужному файлу." >&2
+            return 1
+        fi
+    fi
+    echo "Путь не существует: $input. Попробуйте ещё раз." >&2
+    return 1
+}
+
 # На свежезагруженной системе фоновая служба автообновлений
 # (unattended-upgrades) может удерживать блокировку менеджера пакетов.
 # Ожидаем её освобождения, чтобы команды apt не завершались ошибкой.
@@ -86,14 +118,15 @@ if [[ -z "$ICEDTEA_ZIP" && -e /dev/tty ]]; then
     echo "  2) Офлайн  — установка из локальных файлов (для изолированной сети)"
     read -rp "Ваш выбор [1/2]: " INSTALL_MODE </dev/tty
     if [[ "$INSTALL_MODE" == "2" ]]; then
+        echo "Можно указать путь к файлу либо к папке, в которой он находится."
         while true; do
-            read -rp "Укажите путь к архиву IcedTea-Web (icedtea-web-1.8.8.linux.bin.zip): " ICEDTEA_ZIP </dev/tty
-            if [[ -f "$ICEDTEA_ZIP" ]]; then
-                echo "Локальный архив IcedTea-Web найден."
-                break
-            fi
-            echo "Файл не найден: $ICEDTEA_ZIP. Попробуйте ещё раз."
+            echo "Архив IcedTea-Web (icedtea-web-1.8.8.linux.bin.zip)."
+            echo "  Пример файла: /home/${SUDO_USER}/Downloads/icedtea-web-1.8.8.linux.bin.zip"
+            echo "  Пример папки: /home/${SUDO_USER}/Downloads"
+            read -rp "Путь: " ICEDTEA_INPUT </dev/tty
+            ICEDTEA_ZIP="$(resolve_local_file "$ICEDTEA_INPUT" 'icedtea-web-*.zip')" && break
         done
+        echo "Локальный архив IcedTea-Web найден: $ICEDTEA_ZIP"
         log "Выбран офлайн-режим установки компонентов."
     else
         log "Выбран онлайн-режим установки компонентов."
