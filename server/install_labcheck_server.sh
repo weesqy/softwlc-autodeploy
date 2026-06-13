@@ -33,9 +33,11 @@ set -euo pipefail
 APP_URL="${APP_URL:-}"
 
 APP_SOURCE="${1:-}"
-# Если путь не передан — ищем app.js рядом со сценарием
+# Путь к app.js, лежащему рядом со сценарием (если есть) — предлагается
+# в интерактивном меню как вариант по умолчанию.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-[[ -z "$APP_SOURCE" && -f "${SCRIPT_DIR}/app.js" ]] && APP_SOURCE="${SCRIPT_DIR}/app.js"
+APP_NEARBY=""
+[[ -f "${SCRIPT_DIR}/app.js" ]] && APP_NEARBY="${SCRIPT_DIR}/app.js"
 APP_DIR="/opt/labcheck"
 APP_PORT=9090
 SERVICE_NAME="labcheck"
@@ -122,22 +124,43 @@ fi
 log "Версии: node $(node -v), npm $(npm -v)"
 
 # --- 3. Размещение приложения ---------------------------------------
-# Если источник приложения не задан заранее (аргументом, файлом app.js
-# рядом со сценарием или переменной APP_URL) — предлагаем выбрать способ
-# доставки интерактивно.
+# Если источник приложения не задан заранее (аргументом или переменной
+# APP_URL) — предлагаем выбрать способ доставки интерактивно. Меню
+# показывается всегда; если рядом со сценарием найден app.js, он
+# предлагается как вариант по умолчанию.
 if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -e /dev/tty ]]; then
     echo ""
     echo "Укажите источник приложения для проверки лабораторных работ:"
-    echo "  1) Локальный файл app.js (по умолчанию)"
-    echo "  2) Внутренний источник по URL (веб-сервер организации)"
-    read -rp "Ваш выбор [1/2]: " APP_MODE </dev/tty
-    if [[ "$APP_MODE" == "2" ]]; then
+    if [[ -n "$APP_NEARBY" ]]; then
+        echo "  1) Использовать app.js рядом со сценарием (по умолчанию):"
+        echo "       $APP_NEARBY"
+        echo "  2) Указать другой локальный файл app.js"
+        echo "  3) Внутренний источник по URL (веб-сервер организации)"
+        read -rp "Ваш выбор [1/2/3]: " APP_MODE </dev/tty
+        case "$APP_MODE" in
+            2) APP_MODE="local" ;;
+            3) APP_MODE="url" ;;
+            *) APP_SOURCE="$APP_NEARBY" ;;   # по умолчанию — файл рядом
+        esac
+    else
+        echo "  1) Локальный файл app.js (по умолчанию)"
+        echo "  2) Внутренний источник по URL (веб-сервер организации)"
+        read -rp "Ваш выбор [1/2]: " APP_MODE </dev/tty
+        case "$APP_MODE" in
+            2) APP_MODE="url" ;;
+            *) APP_MODE="local" ;;
+        esac
+    fi
+
+    if [[ "$APP_MODE" == "url" ]]; then
+        echo "Укажите адрес приложения на внутреннем сервере организации."
+        echo "  Пример: http://192.168.1.50/app.js"
         while true; do
-            read -rp "Укажите URL приложения (например, http://192.168.1.50/app.js): " APP_URL </dev/tty
+            read -rp "URL: " APP_URL </dev/tty
             [[ -n "$APP_URL" ]] && break
             echo "Адрес не может быть пустым. Попробуйте ещё раз."
         done
-    else
+    elif [[ "$APP_MODE" == "local" ]]; then
         echo "Можно указать путь к файлу либо к папке, в которой он находится."
         while true; do
             echo "  Пример файла: /home/${SUDO_USER:-dmitry}/app.js"
