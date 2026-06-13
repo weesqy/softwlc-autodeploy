@@ -20,16 +20,28 @@ set -euo pipefail
 #   Вариант 2 (адрес передаётся аргументом, без вопросов):
 #     sudo ./install_ems_client_ubuntu.sh http://192.168.1.23:8080/ems/jws
 #
-# Источник IcedTea-Web (необязательно):
-#   sudo ICEDTEA_ZIP=/путь/к/icedtea-web-1.8.8.linux.bin.zip ./install_ems_client_ubuntu.sh <URL_JNLP>
-#   sudo ICEDTEA_URL=https://.../icedtea-web-1.8.8.linux.bin.zip ./install_ems_client_ubuntu.sh <URL_JNLP>
+# Режим установки компонентов выбирается интерактивно:
+#   - онлайн: Java (openjdk-17-jdk) и IcedTea-Web загружаются из сети;
+#   - офлайн: оба компонента берутся из локальных архивов (JDK 17 .tar.gz
+#     и icedtea-web-1.8.8.linux.bin.zip), заранее скачанных на клиент.
 # ============================================================
 
 JNLP_URL="${1:-}"
 ICEDTEA_DIR="/opt/icedtea"
-ICEDTEA_DEFAULT_URL="https://github.com/AdoptOpenJDK/IcedTea-Web/releases/download/icedtea-web-1.8.8/icedtea-web-1.8.8.linux.bin.zip"
-ICEDTEA_ZIP="${ICEDTEA_ZIP:-}"
-ICEDTEA_URL="${ICEDTEA_URL:-$ICEDTEA_DEFAULT_URL}"
+ICEDTEA_URL="https://github.com/AdoptOpenJDK/IcedTea-Web/releases/download/icedtea-web-1.8.8/icedtea-web-1.8.8.linux.bin.zip"
+
+# Параметры JDK для офлайн-режима (установка из архива, как на Astra Linux).
+# В онлайн-режиме Java ставится из репозитория (openjdk-17-jdk).
+JDK_VERSION="jdk-17.0.14+7"
+JVM_DIR="/usr/lib/jvm"
+
+# Пути к локальным архивам. Заполняются только при выборе офлайн-режима
+# в интерактивном диалоге (см. ниже). По умолчанию пусты.
+ICEDTEA_ZIP=""
+JDK_TARBALL=""
+
+# Режим установки: online (по умолчанию) либо offline. Определяется в диалоге.
+INSTALL_MODE_KIND="online"
 
 log()  { echo -e "[$(date '+%H:%M:%S')] $*"; }
 fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
@@ -108,17 +120,25 @@ sudo $0 http://<ip-сервера>:8080/ems/jws"
     done
 fi
 
-# Если источник IcedTea-Web не задан заранее (через ICEDTEA_ZIP или аргументы),
-# предлагаем выбрать режим установки компонентов: онлайн или офлайн.
-# В офлайн-режиме запрашивается путь к локальному архиву.
-if [[ -z "$ICEDTEA_ZIP" && -e /dev/tty ]]; then
+# Предлагаем выбрать режим установки компонентов: онлайн или офлайн.
+# В офлайн-режиме запрашивается путь к локальному архиву IcedTea-Web.
+if [[ -e /dev/tty ]]; then
     echo ""
     echo "Выберите режим установки компонентов:"
     echo "  1) Онлайн  — загрузка из сети Интернет (по умолчанию)"
     echo "  2) Офлайн  — установка из локальных файлов (для изолированной сети)"
     read -rp "Ваш выбор [1/2]: " INSTALL_MODE </dev/tty
     if [[ "$INSTALL_MODE" == "2" ]]; then
+        INSTALL_MODE_KIND="offline"
         echo "Можно указать путь к файлу либо к папке, в которой он находится."
+        while true; do
+            echo "Архив JDK 17 (${JDK_VERSION}, .tar.gz)."
+            echo "  Пример файла: /home/${SUDO_USER}/Downloads/OpenJDK17U-jdk_x64_linux_hotspot_17.0.14_7.tar.gz"
+            echo "  Пример папки: /home/${SUDO_USER}/Downloads"
+            read -rp "Путь: " JDK_INPUT </dev/tty
+            JDK_TARBALL="$(resolve_local_file "$JDK_INPUT" '*.tar.gz')" && break
+        done
+        echo "Архив JDK найден: $JDK_TARBALL"
         while true; do
             echo "Архив IcedTea-Web (icedtea-web-1.8.8.linux.bin.zip)."
             echo "  Пример файла: /home/${SUDO_USER}/Downloads/icedtea-web-1.8.8.linux.bin.zip"
@@ -126,7 +146,7 @@ if [[ -z "$ICEDTEA_ZIP" && -e /dev/tty ]]; then
             read -rp "Путь: " ICEDTEA_INPUT </dev/tty
             ICEDTEA_ZIP="$(resolve_local_file "$ICEDTEA_INPUT" 'icedtea-web-*.zip')" && break
         done
-        echo "Локальный архив IcedTea-Web найден: $ICEDTEA_ZIP"
+        echo "Архив IcedTea-Web найден: $ICEDTEA_ZIP"
         log "Выбран офлайн-режим установки компонентов."
     else
         log "Выбран онлайн-режим установки компонентов."
@@ -139,30 +159,71 @@ DOWNLOAD_DIR="${TARGET_HOME}/Downloads"
 mkdir -p "$DOWNLOAD_DIR"
 
 # --- 2. Установка Java 17 -------------------------------------------
-log "[1/6] Проверка наличия OpenJDK 17..."
-wait_for_apt
-apt-get update -y
-if dpkg -s openjdk-17-jdk >/dev/null 2>&1; then
-    log "OpenJDK 17 уже установлен, пропуск установки."
-    apt-get install -y unzip wget ca-certificates
-else
-    log "Установка OpenJDK 17..."
-    apt-get install -y openjdk-17-jdk unzip wget ca-certificates
-fi
-
-JAVA_HOME_DIR="/usr/lib/jvm/java-17-openjdk-amd64"
-JAVA_BIN="${JAVA_HOME_DIR}/bin/java"
-[[ -x "$JAVA_BIN" ]] || fail "Не найден ${JAVA_BIN}. Проверьте архитектуру и пакет openjdk-17-jdk."
-
-log "[2/6] Настройка Java 17 по умолчанию..."
-update-alternatives --set java "$JAVA_BIN" || true
-[[ -e /usr/lib/jvm/default-java ]] || ln -s "$JAVA_HOME_DIR" /usr/lib/jvm/default-java
-java -version
-
-# --- 3. Установка IcedTea-Web ---------------------------------------
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+if [[ "$INSTALL_MODE_KIND" == "offline" ]]; then
+    # Офлайн-режим: JDK 17 устанавливается из локального архива
+    # (так же, как на Astra Linux), без обращения к репозиторию.
+    JAVA_HOME_DIR="${JVM_DIR}/${JDK_VERSION}"
+    if [[ -d "$JAVA_HOME_DIR" ]]; then
+        log "[1/6] JDK 17 уже установлен в ${JAVA_HOME_DIR}, пропуск распаковки."
+    else
+        log "[1/6] Установка JDK 17 из локального архива..."
+        mkdir -p "$JVM_DIR"
+        tar -xzf "$JDK_TARBALL" -C "$JVM_DIR/" \
+            || fail "Не удалось распаковать архив JDK: $JDK_TARBALL"
+        [[ -d "$JAVA_HOME_DIR" ]] || fail "После распаковки не найден каталог ${JAVA_HOME_DIR}.
+Проверьте версию архива (ожидается ${JDK_VERSION})."
+    fi
+
+    log "[2/6] Настройка Java 17 по умолчанию..."
+    # Переменные окружения для всех пользователей системы
+    cat > /etc/profile.d/java.sh <<PROF
+export JAVA_HOME=${JAVA_HOME_DIR}
+export PATH=\$JAVA_HOME/bin:\$PATH
+PROF
+    chmod +x /etc/profile.d/java.sh
+    # shellcheck disable=SC1091
+    source /etc/profile.d/java.sh
+    update-alternatives --install /usr/bin/java  java  "${JAVA_HOME_DIR}/bin/java"  2000
+    update-alternatives --install /usr/bin/javac javac "${JAVA_HOME_DIR}/bin/javac" 2000
+    update-alternatives --set java  "${JAVA_HOME_DIR}/bin/java"
+    update-alternatives --set javac "${JAVA_HOME_DIR}/bin/javac"
+else
+    # Онлайн-режим: Java ставится из штатного репозитория Ubuntu.
+    log "[1/6] Проверка наличия OpenJDK 17..."
+    wait_for_apt
+    apt-get update -y
+    if dpkg -s openjdk-17-jdk >/dev/null 2>&1; then
+        log "OpenJDK 17 уже установлен, пропуск установки."
+        apt-get install -y unzip wget ca-certificates
+    else
+        log "Установка OpenJDK 17..."
+        apt-get install -y openjdk-17-jdk unzip wget ca-certificates
+    fi
+
+    JAVA_HOME_DIR="/usr/lib/jvm/java-17-openjdk-amd64"
+    JAVA_BIN="${JAVA_HOME_DIR}/bin/java"
+    [[ -x "$JAVA_BIN" ]] || fail "Не найден ${JAVA_BIN}. Проверьте архитектуру и пакет openjdk-17-jdk."
+
+    log "[2/6] Настройка Java 17 по умолчанию..."
+    update-alternatives --set java "$JAVA_BIN" || true
+    [[ -e /usr/lib/jvm/default-java ]] || ln -s "$JAVA_HOME_DIR" /usr/lib/jvm/default-java
+fi
+java -version
+
+# В офлайн-режиме пакеты не устанавливались через apt — проверим,
+# что необходимые утилиты (unzip для распаковки, wget для загрузки
+# JNLP-файла с сервера) уже присутствуют в системе.
+if [[ "$INSTALL_MODE_KIND" == "offline" ]]; then
+    for tool in unzip wget; do
+        command -v "$tool" >/dev/null 2>&1 \
+            || fail "Утилита '$tool' не найдена. В офлайн-режиме она должна быть установлена заранее (sudo apt install $tool)."
+    done
+fi
+
+# --- 3. Установка IcedTea-Web ---------------------------------------
 if [[ -x "${ICEDTEA_DIR}/icedtea-web-image/bin/javaws" ]]; then
     log "[3/6] IcedTea-Web уже установлен в ${ICEDTEA_DIR}, пропуск загрузки и распаковки."
 else
@@ -173,7 +234,7 @@ else
     else
         log "Загрузка архива: $ICEDTEA_URL"
         wget -O "$TMP_DIR/icedtea.zip" "$ICEDTEA_URL" \
-            || fail "Не удалось загрузить IcedTea-Web. Укажите локальный архив через ICEDTEA_ZIP."
+            || fail "Не удалось загрузить IcedTea-Web из сети. Повторите запуск и выберите офлайн-режим с локальным архивом."
     fi
 
     cd "$TMP_DIR"
