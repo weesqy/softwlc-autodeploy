@@ -104,6 +104,9 @@ apt_update_checked() {
 # --- 1. Предварительные проверки -----------------------------------
 [[ $EUID -eq 0 ]] || fail "Запустите скрипт с правами суперпользователя: sudo $0"
 
+# Засекаем время начала развёртывания для итогового подсчёта длительности.
+START_TIME="$(date +%s)"
+
 # Приложение обращается к MySQL на localhost — убедимся, что СУБД установлена
 systemctl is-active --quiet mysql 2>/dev/null \
     || log "[ВНИМАНИЕ] Служба MySQL не активна. Приложение требует установленного SoftWLC."
@@ -232,5 +235,12 @@ else
 fi
 
 SERVER_IP="$(hostname -I | awk '{print $1}')"
+
+# Подсчёт и вывод затраченного времени
+ELAPSED=$(( $(date +%s) - START_TIME ))
+ELAPSED_MIN=$(( ELAPSED / 60 ))
+ELAPSED_SEC=$(( ELAPSED % 60 ))
+
 log "Развёртывание завершено."
+log "Затрачено времени: ${ELAPSED_MIN} мин ${ELAPSED_SEC} с."
 log "Приложение доступно по адресу: http://${SERVER_IP}:${APP_PORT}"
