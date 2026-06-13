@@ -21,7 +21,7 @@ set -euo pipefail
 
 # URL установочного сценария SoftWLC (значение по умолчанию).
 # ВНИМАНИЕ: подставьте сюда актуальный адрес из репозитория Eltex.
-DEFAULT_SOFTWLC_URL="https://<репозиторий-eltex>/install_softwlc.sh"
+DEFAULT_SOFTWLC_URL="https://archive.eltex-co.ru/wireless/help/softwlc-latest/eltex-softwlc-helper-latest.sh"
 
 # Аргумент командной строки имеет приоритет над значением по умолчанию.
 SOFTWLC_URL="${1:-$DEFAULT_SOFTWLC_URL}"
