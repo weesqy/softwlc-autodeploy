@@ -25,24 +25,21 @@ set -euo pipefail
 #     (дополнительно интерактивно предлагается выбрать режим: онлайн или офлайн)
 #   Вариант 2 (адрес передаётся аргументом, без вопросов):
 #     sudo ./install_ems_client_astra.sh http://192.168.1.23:8080/ems/jws
-#
-# Источники компонентов (необязательно, для офлайн-установки):
-#   sudo JDK_TARBALL=/путь/к/jdk17.tar.gz \
-#        ICEDTEA_ZIP=/путь/к/icedtea-web-1.8.8.linux.bin.zip \
-#        ./install_ems_client_astra.sh <URL_JNLP>
 # ============================================================
 
 JNLP_URL="${1:-}"
 
 JDK_VERSION="jdk-17.0.14+7"
-JDK_TARBALL="${JDK_TARBALL:-}"
-JDK_URL="${JDK_URL:-https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.14%2B7/OpenJDK17U-jdk_x64_linux_hotspot_17.0.14_7.tar.gz}"
+JDK_URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.14%2B7/OpenJDK17U-jdk_x64_linux_hotspot_17.0.14_7.tar.gz"
+# Путь к локальному архиву JDK. Заполняется только при выборе офлайн-режима.
+JDK_TARBALL=""
 JVM_DIR="/usr/lib/jvm"
 JAVA_HOME_DIR="${JVM_DIR}/${JDK_VERSION}"
 
 ICEDTEA_DIR="/opt/icedtea"
-ICEDTEA_ZIP="${ICEDTEA_ZIP:-}"
-ICEDTEA_URL="${ICEDTEA_URL:-https://github.com/AdoptOpenJDK/IcedTea-Web/releases/download/icedtea-web-1.8.8/icedtea-web-1.8.8.linux.bin.zip}"
+ICEDTEA_URL="https://github.com/AdoptOpenJDK/IcedTea-Web/releases/download/icedtea-web-1.8.8/icedtea-web-1.8.8.linux.bin.zip"
+# Путь к локальному архиву IcedTea-Web. Заполняется только при выборе офлайн-режима.
+ICEDTEA_ZIP=""
 
 log()  { echo -e "[$(date '+%H:%M:%S')] $*"; }
 fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
@@ -92,6 +89,26 @@ wait_for_apt() {
     fi
 }
 
+# Запускает обновление списков пакетов и распознаёт типичную ошибку,
+# связанную с неверным системным временем ("Release file ... is not valid yet").
+# Такое случается на виртуальных машинах, время которых отстало от реального
+# (например, после длительного простоя или отката к снимку). Время не меняется
+# автоматически — выводится пояснение со способом исправления.
+apt_update_checked() {
+    local out
+    out="$(apt-get update -y 2>&1)" || true
+    echo "$out"
+    if echo "$out" | grep -qiE 'not valid yet|Release file.*is not valid'; then
+        echo ""
+        log "[ВНИМАНИЕ] Похоже, системное время неверно (отстаёт от реального),"
+        log "           из-за чего менеджер пакетов отклонил данные репозитория."
+        log "           Синхронизируйте время и повторите запуск, например:"
+        log "             sudo timedatectl set-ntp true"
+        log "           либо задайте время вручную:"
+        log "             sudo timedatectl set-time \"ГГГГ-ММ-ДД ЧЧ:ММ:СС\""
+    fi
+}
+
 
 # --- 1. Предварительные проверки -----------------------------------
 [[ $EUID -eq 0 ]] || fail "Запустите скрипт через sudo."
@@ -104,7 +121,7 @@ if [[ -z "$JNLP_URL" ]]; then
     [[ -e /dev/tty ]] || fail "Терминал недоступен. Передайте адрес аргументом:
 sudo $0 http://<ip-сервера>:8080/ems/jws"
     while true; do
-        read -rp "Введите IP-адрес сервера SoftWLC (например, 192.168.1.1): " SERVER_IP </dev/tty
+        read -rp "Введите IP-адрес сервера SoftWLC (например, 192.168.1.23): " SERVER_IP </dev/tty
         if [[ ! "$SERVER_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
             echo "Некорректный формат IP-адреса, попробуйте ещё раз."
             continue
@@ -115,19 +132,18 @@ sudo $0 http://<ip-сервера>:8080/ems/jws"
             echo "Сервер SoftWLC доступен."
             break
         fi
-        read -rp "Сервер не отвечает. Продолжить с этим адресом? [y/n]: " ANSWER </dev/tty
+        read -rp "Сервер не отвечает. Продолжить с этим адресом? [y/N]: " ANSWER </dev/tty
         [[ "$ANSWER" =~ ^[YyДд]$ ]] && break
     done
 fi
 
-# Если источники компонентов не заданы заранее (JDK_TARBALL / ICEDTEA_ZIP),
-# предлагаем выбрать режим установки: онлайн или офлайн. В офлайн-режиме
-# запрашиваются пути к локальным архивам JDK и IcedTea-Web.
-if [[ -z "$JDK_TARBALL" && -z "$ICEDTEA_ZIP" && -e /dev/tty ]]; then
+# Предлагаем выбрать режим установки: онлайн или офлайн. В офлайн-режиме
+# запрашиваются пути к локальным архивам JDK 17 и IcedTea-Web.
+if [[ -e /dev/tty ]]; then
     echo ""
     echo "Выберите режим установки компонентов:"
-    echo "  1) Онлайн  — загрузка из сети Интернет"
-    echo "  2) Офлайн  — установка из локальных файлов"
+    echo "  1) Онлайн  — загрузка из сети Интернет (по умолчанию)"
+    echo "  2) Офлайн  — установка из локальных файлов (для изолированной сети)"
     read -rp "Ваш выбор [1/2]: " INSTALL_MODE </dev/tty
     if [[ "$INSTALL_MODE" == "2" ]]; then
         echo "Можно указать путь к файлу либо к папке, в которой он находится."
@@ -159,7 +175,7 @@ DOWNLOAD_DIR="${TARGET_HOME}/Downloads"
 mkdir -p "$DOWNLOAD_DIR"
 
 wait_for_apt
-apt-get update -y || log "[ВНИМАНИЕ] Не удалось обновить списки пакетов, продолжаем."
+apt_update_checked
 apt-get install -y wget unzip ca-certificates || true
 
 TMP_DIR="$(mktemp -d)"
@@ -177,7 +193,7 @@ else
     else
         log "Загрузка JDK 17: $JDK_URL"
         wget -O "$TMP_DIR/jdk17.tar.gz" "$JDK_URL" \
-            || fail "Не удалось загрузить JDK. Укажите локальный архив через JDK_TARBALL."
+            || fail "Не удалось загрузить JDK из сети. Повторите запуск и выберите офлайн-режим с локальным архивом."
     fi
 
     log "[2/6] Распаковка JDK в ${JVM_DIR} и настройка окружения..."
@@ -215,7 +231,7 @@ else
     else
         log "Загрузка архива: $ICEDTEA_URL"
         wget -O "$TMP_DIR/icedtea.zip" "$ICEDTEA_URL" \
-            || fail "Не удалось загрузить IcedTea-Web. Укажите локальный архив через ICEDTEA_ZIP."
+            || fail "Не удалось загрузить IcedTea-Web из сети. Повторите запуск и выберите офлайн-режим с локальным архивом."
     fi
 
     cd "$TMP_DIR"
