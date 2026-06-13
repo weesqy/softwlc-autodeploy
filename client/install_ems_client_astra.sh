@@ -146,6 +146,9 @@ if [[ -e /dev/tty ]]; then
     echo "  2) Офлайн  — установка из локальных файлов (для изолированной сети)"
     read -rp "Ваш выбор [1/2]: " INSTALL_MODE </dev/tty
     if [[ "$INSTALL_MODE" == "2" ]]; then
+        echo "Для офлайн-установки нужны два заранее скачанных архива:"
+        echo "  - JDK 17 (OpenJDK17U-jdk_x64_linux_hotspot_17.0.14_7.tar.gz);"
+        echo "  - IcedTea-Web (icedtea-web-1.8.8.linux.bin.zip)."
         echo "Можно указать путь к файлу либо к папке, в которой он находится."
         while true; do
             echo "Архив JDK 17 (${JDK_VERSION}, .tar.gz)."
