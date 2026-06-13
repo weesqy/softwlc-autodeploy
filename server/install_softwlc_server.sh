@@ -21,7 +21,7 @@ set -euo pipefail
 
 # URL установочного сценария SoftWLC (значение по умолчанию).
 # ВНИМАНИЕ: подставьте сюда актуальный адрес из репозитория Eltex.
-DEFAULT_SOFTWLC_URL="https://archive.eltex-co.ru/wireless/help/softwlc-latest/eltex-softwlc-helper-latest.sh"
+DEFAULT_SOFTWLC_URL="https://<репозиторий-eltex>/install_softwlc.sh"
 
 # Аргумент командной строки имеет приоритет над значением по умолчанию.
 SOFTWLC_URL="${1:-$DEFAULT_SOFTWLC_URL}"
@@ -43,6 +43,26 @@ wait_for_apt() {
     fi
 }
 
+# Запускает обновление списков пакетов и распознаёт типичную ошибку,
+# связанную с неверным системным временем ("Release file ... is not valid yet").
+# Такое случается на виртуальных машинах, время которых отстало от реального
+# (например, после длительного простоя или отката к снимку). Время не меняется
+# автоматически — выводится пояснение со способом исправления.
+apt_update_checked() {
+    local out
+    out="$(apt-get update -y 2>&1)" || true
+    echo "$out"
+    if echo "$out" | grep -qiE 'not valid yet|Release file.*is not valid'; then
+        echo ""
+        log "[ВНИМАНИЕ] Похоже, системное время неверно (отстаёт от реального),"
+        log "           из-за чего менеджер пакетов отклонил данные репозитория."
+        log "           Синхронизируйте время и повторите запуск, например:"
+        log "             sudo timedatectl set-ntp true"
+        log "           либо задайте время вручную:"
+        log "             sudo timedatectl set-time \"ГГГГ-ММ-ДД ЧЧ:ММ:СС\""
+    fi
+}
+
 
 # --- 1. Предварительные проверки -----------------------------------
 [[ $EUID -eq 0 ]] || fail "Запустите скрипт с правами суперпользователя: sudo $0"
@@ -52,7 +72,7 @@ wait_for_apt() {
 
 wait_for_apt
 log "Обновление списка пакетов..."
-apt-get update -y || log "[ВНИМАНИЕ] Не удалось обновить списки пакетов, продолжаем."
+apt_update_checked
 
 command -v wget >/dev/null 2>&1 || {
     log "Утилита wget не найдена, выполняется установка..."
