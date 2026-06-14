@@ -42,7 +42,7 @@ JNLP_URL="${1:-}"
 # Подсказка по версии JDK для офлайн-режима (используется только в тексте
 # приглашений). Фактический каталог распаковки определяется из самого архива.
 JDK_VERSION_HINT="jdk-17.0.14+7"
-JDK_URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.14%2B7/OpenJDK17U-jdk_x64_linux_hotspot_17.0.14_7.tar.gz"
+JDK_URL="https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse"
 # Путь к локальному архиву JDK. Заполняется только при выборе офлайн-режима.
 JDK_TARBALL=""
 JVM_DIR="/usr/lib/jvm"
