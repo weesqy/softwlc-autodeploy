@@ -368,11 +368,15 @@ ELAPSED_SEC=$(( ELAPSED % 60 ))
 log "Установка компонентов завершена. Затрачено времени: ${ELAPSED_MIN} мин ${ELAPSED_SEC} с."
 
 # --- 6. Запуск EMS-апплета --------------------------------------------
+# javaws запускается напрямую с URL и с параметром -allowredirect: сервер
+# SoftWLC может отвечать на запрос /ems/jws HTTP-перенаправлением (301/302),
+# которое wget выполняет по умолчанию, а IcedTea-Web без этого параметра — нет
+# (из-за чего возникает ошибка "Could not read or parse the JNLP file").
 log "[6/6] Запуск EMS-апплета..."
 if [[ -n "${DISPLAY:-}" ]]; then
-    runuser -u "$TARGET_USER" -- javaws "$JNLP_FILE" &
+    runuser -u "$TARGET_USER" -- javaws -allowredirect "$JNLP_URL" &
     log "EMS-апплет запущен. Используйте учётные данные, выданные при установке SoftWLC."
 else
     log "Графическая сессия не обнаружена. Файл загружен: $JNLP_FILE"
-    log "Запустите вручную под пользователем ${TARGET_USER}: javaws \"$JNLP_FILE\""
+    log "Запустите вручную под пользователем ${TARGET_USER}: javaws -allowredirect \"$JNLP_URL\""
 fi
