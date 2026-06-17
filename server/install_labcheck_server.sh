@@ -166,8 +166,8 @@ if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -e /dev/tty ]]; then
     elif [[ "$APP_MODE" == "local" ]]; then
         echo "Можно указать путь к файлу либо к папке, в которой он находится."
         while true; do
-            echo "  Пример файла: /home/${SUDO_USER:-dmitry}/app.js"
-            echo "  Пример папки: /home/${SUDO_USER:-dmitry}"
+            echo "  Пример файла: /home/${SUDO_USER}/app.js"
+            echo "  Пример папки: /home/${SUDO_USER}"
             read -rp "Путь к app.js: " APP_INPUT </dev/tty
             APP_SOURCE="$(resolve_local_file "$APP_INPUT" 'app.js')" && break
         done
