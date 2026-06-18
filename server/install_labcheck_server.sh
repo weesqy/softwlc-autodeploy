@@ -4,7 +4,7 @@ set -euo pipefail
 # ============================================================
 # Автоматизированное развёртывание приложения для проверки
 # лабораторных работ (сервер SoftWLC)
-# Целевая ОС: Ubuntu Server 22.04 LTS
+# Целевая ОС: Ubuntu Server 22.04 LTS / 24.04 LTS
 #
 # Скрипт выполняет:
 #   1) установку Node.js 20 LTS из репозитория NodeSource;
@@ -42,7 +42,7 @@ APP_DIR="/opt/labcheck"
 APP_PORT=9090
 SERVICE_NAME="labcheck"
 
-log()  { echo -e "[$(date '+%H:%M:%S')] $*"; }
+log() { echo -e "[$(date '+%H:%M:%S')] $*"; }
 fail() { echo -e "[ОШИБКА] $*" >&2; exit 1; }
 
 # Преобразует введённый путь в путь к файлу: принимает путь к файлу
@@ -92,24 +92,31 @@ apt_update_checked() {
     if echo "$out" | grep -qiE 'not valid yet|Release file.*is not valid'; then
         echo ""
         log "[ВНИМАНИЕ] Похоже, системное время неверно (отстаёт от реального),"
-        log "           из-за чего менеджер пакетов отклонил данные репозитория."
-        log "           Синхронизируйте время и повторите запуск, например:"
-        log "             sudo timedatectl set-ntp true"
-        log "           либо задайте время вручную:"
-        log "             sudo timedatectl set-time \"ГГГГ-ММ-ДД ЧЧ:ММ:СС\""
+        log "            из-за чего менеджер пакетов отклонил данные репозитория."
+        log "            Синхронизируйте время и повторите запуск, например:"
+        log "              sudo timedatectl set-ntp true"
+        log "            либо задайте время вручную:"
+        log "              sudo timedatectl set-time \"ГГГГ-ММ-ДД ЧЧ:ММ:СС\""
     fi
 }
 
 
-# --- 1. Предварительные проверки -----------------------------------
+# --- 1. Предварительные проверки ------------------------------------
 [[ $EUID -eq 0 ]] || fail "Запустите скрипт с правами суперпользователя: sudo $0"
 
 # Засекаем время начала развёртывания для итогового подсчёта длительности.
 START_TIME="$(date +%s)"
 
-# Приложение обращается к MySQL на localhost — убедимся, что СУБД установлена
-systemctl is-active --quiet mysql 2>/dev/null \
-    || log "[ВНИМАНИЕ] Служба MySQL не активна. Приложение требует установленного SoftWLC."
+# SoftWLC (модуль EMS) слушает порт 8080 — это признак, что он развёрнут
+# и запущен. Приложение проверки подключается к базам данных SoftWLC
+# (wireless, radius) в MySQL на localhost, поэтому SoftWLC должен быть
+# установлен на этом же сервере.
+if ! ss -ltn 2>/dev/null | grep -qE ':8080([[:space:]]|$)'; then
+    log "[ВНИМАНИЕ] Порт 8080 (EMS-сервер SoftWLC) не прослушивается — похоже, SoftWLC"
+    log "            не развёрнут на этом сервере либо ещё не запущен (после перезагрузки"
+    log "            EMS-серверу нужно несколько минут на запуск). Приложение проверки"
+    log "            обращается к базам данных SoftWLC (wireless, radius) на localhost."
+fi
 
 wait_for_apt
 log "Обновление списка пакетов..."
@@ -135,10 +142,10 @@ if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -e /dev/tty ]]; then
     echo ""
     echo "Укажите источник приложения для проверки лабораторных работ:"
     if [[ -n "$APP_NEARBY" ]]; then
-        echo "  1) Использовать app.js рядом со сценарием (по умолчанию):"
+        echo " 1) Использовать app.js рядом со сценарием (по умолчанию):"
         echo "       $APP_NEARBY"
-        echo "  2) Указать другой локальный файл app.js"
-        echo "  3) Внутренний источник по URL (веб-сервер организации)"
+        echo " 2) Указать другой локальный файл app.js"
+        echo " 3) Внутренний источник по URL (веб-сервер организации)"
         read -rp "Ваш выбор [1/2/3]: " APP_MODE </dev/tty
         case "$APP_MODE" in
             2) APP_MODE="local" ;;
@@ -146,8 +153,8 @@ if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -e /dev/tty ]]; then
             *) APP_SOURCE="$APP_NEARBY" ;;   # по умолчанию — файл рядом
         esac
     else
-        echo "  1) Локальный файл app.js (по умолчанию)"
-        echo "  2) Внутренний источник по URL (веб-сервер организации)"
+        echo " 1) Локальный файл app.js (по умолчанию)"
+        echo " 2) Внутренний источник по URL (веб-сервер организации)"
         read -rp "Ваш выбор [1/2]: " APP_MODE </dev/tty
         case "$APP_MODE" in
             2) APP_MODE="url" ;;
@@ -157,17 +164,26 @@ if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -e /dev/tty ]]; then
 
     if [[ "$APP_MODE" == "url" ]]; then
         echo "Укажите адрес приложения на внутреннем сервере организации."
-        echo "  Пример: http://192.168.1.50/app.js"
+        echo " Пример: http://192.168.1.50:8000/app.js"
         while true; do
             read -rp "URL: " APP_URL </dev/tty
-            [[ -n "$APP_URL" ]] && break
-            echo "Адрес не может быть пустым. Попробуйте ещё раз."
+            if [[ -z "$APP_URL" ]]; then
+                echo "Адрес не может быть пустым. Попробуйте ещё раз."
+                continue
+            fi
+            # Предварительная проверка доступности адреса: при ошибке
+            # переспрашиваем, а не прерываем установку.
+            if wget -q --timeout=10 --tries=1 -O /dev/null "$APP_URL"; then
+                break
+            fi
+            echo "Не удалось обратиться к адресу: $APP_URL"
+            echo "Проверьте адрес и доступность сервера и попробуйте ещё раз."
         done
     elif [[ "$APP_MODE" == "local" ]]; then
         echo "Можно указать путь к файлу либо к папке, в которой он находится."
         while true; do
-            echo "  Пример файла: /home/${SUDO_USER}/app.js"
-            echo "  Пример папки: /home/${SUDO_USER}"
+            echo " Пример файла: /home/${SUDO_USER}/app.js"
+            echo " Пример папки: /home/${SUDO_USER}"
             read -rp "Путь к app.js: " APP_INPUT </dev/tty
             APP_SOURCE="$(resolve_local_file "$APP_INPUT" 'app.js')" && break
         done
@@ -191,13 +207,13 @@ else
 или задайте внутренний источник: APP_URL=http://<сервер>/app.js"
 fi
 
-# --- 4. Установка зависимостей ---------------------------------------
+# --- 4. Установка зависимостей --------------------------------------
 log "Установка npm-зависимостей..."
 cd "$APP_DIR"
 [[ -f package.json ]] || npm init -y >/dev/null
 npm install express bcrypt express-session mysql2
 
-# --- 5. Создание systemd-службы --------------------------------------
+# --- 5. Создание systemd-службы -------------------------------------
 log "Создание службы systemd ${SERVICE_NAME}..."
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
@@ -220,18 +236,18 @@ EOF
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 
-# --- 6. Проверка результата -------------------------------------------
+# --- 6. Проверка результата -----------------------------------------
 sleep 3
 if systemctl is-active --quiet "$SERVICE_NAME"; then
-    log "  [OK] Служба ${SERVICE_NAME} запущена."
+    log " [OK] Служба ${SERVICE_NAME} запущена."
 else
     fail "Служба ${SERVICE_NAME} не запустилась. Журнал: journalctl -u ${SERVICE_NAME} -n 50"
 fi
 
 if ss -tln | grep -q ":${APP_PORT}"; then
-    log "  [OK] Порт ${APP_PORT} прослушивается."
+    log " [OK] Порт ${APP_PORT} прослушивается."
 else
-    log "  [ВНИМАНИЕ] Порт ${APP_PORT} не прослушивается — проверьте журнал службы."
+    log " [ВНИМАНИЕ] Порт ${APP_PORT} не прослушивается — проверьте журнал службы."
 fi
 
 SERVER_IP="$(hostname -I | awk '{print $1}')"
