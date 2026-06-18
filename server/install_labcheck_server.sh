@@ -201,6 +201,7 @@ if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -e /dev/tty ]]; then
 fi
 
 mkdir -p "$APP_DIR"
+APP_CHANGED=0   # станет 1, если код приложения заменён (нужно для перезапуска службы)
 if [[ -n "$APP_SOURCE" ]]; then
     [[ -f "$APP_SOURCE" ]] || fail "Файл приложения не найден: $APP_SOURCE"
     if [[ "$APP_SOURCE" -ef "$APP_DIR/app.js" ]]; then
@@ -208,11 +209,13 @@ if [[ -n "$APP_SOURCE" ]]; then
     else
         log "Копирование приложения из ${APP_SOURCE} в ${APP_DIR}..."
         cp "$APP_SOURCE" "$APP_DIR/app.js"
+        APP_CHANGED=1
     fi
 elif [[ -n "$APP_URL" ]]; then
     log "Загрузка приложения из внутреннего источника: ${APP_URL}"
     wget -O "$APP_DIR/app.js" "$APP_URL" \
         || fail "Не удалось загрузить приложение из указанного источника."
+    APP_CHANGED=1
 else
     fail "Не найден файл приложения. Приложение не распространяется через публичный репозиторий.
 Передайте путь аргументом: sudo $0 /путь/к/app.js
@@ -231,8 +234,10 @@ else
 fi
 
 # --- 5. Создание systemd-службы -------------------------------------
-log "Создание службы systemd ${SERVICE_NAME}..."
-cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+# Юнит формируется заранее и записывается только если его ещё нет или
+# содержимое изменилось — повторный запуск не трогает уже настроенную службу.
+UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+NEW_UNIT="$(cat <<EOF
 [Unit]
 Description=Приложение проверки лабораторных работ SoftWLC
 After=network.target mysql.service
@@ -249,9 +254,26 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
+)"
 
-systemctl daemon-reload
-systemctl enable --now "$SERVICE_NAME"
+if [[ -f "$UNIT_FILE" && "$(cat "$UNIT_FILE")" == "$NEW_UNIT" ]]; then
+    log "Служба ${SERVICE_NAME} уже настроена, пропуск создания."
+else
+    log "Создание службы systemd ${SERVICE_NAME}..."
+    printf '%s\n' "$NEW_UNIT" > "$UNIT_FILE"
+    systemctl daemon-reload
+fi
+
+systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null || systemctl enable "$SERVICE_NAME"
+
+# Запуск службы; если код приложения обновился — перезапуск, чтобы
+# применилась новая версия. Уже работающую неизменную службу не трогаем.
+if ! systemctl is-active --quiet "$SERVICE_NAME"; then
+    systemctl start "$SERVICE_NAME"
+elif [[ "$APP_CHANGED" -eq 1 ]]; then
+    log "Код приложения обновлён — перезапуск службы ${SERVICE_NAME}."
+    systemctl restart "$SERVICE_NAME"
+fi
 
 # --- 6. Проверка результата -----------------------------------------
 sleep 3
