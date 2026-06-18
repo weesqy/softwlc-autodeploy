@@ -7,7 +7,7 @@ set -euo pipefail
 # Целевая ОС: Ubuntu Server 22.04 LTS / 24.04 LTS
 #
 # Скрипт выполняет:
-#   1) проверку наличия запущенного EMS-сервера SoftWLC;
+#   1) ожидание доступности EMS-сервера SoftWLC;
 #   2) установку Node.js 20 LTS из репозитория NodeSource;
 #   3) копирование приложения в каталог /opt/labcheck;
 #   4) установку npm-зависимостей (express, bcrypt,
@@ -43,6 +43,9 @@ APP_NEARBY=""
 [[ -f "${SCRIPT_DIR}/app.js" ]] && APP_NEARBY="${SCRIPT_DIR}/app.js"
 APP_DIR="/opt/labcheck"
 APP_PORT=9090
+EMS_PORT=8080
+EMS_WAIT_TIMEOUT=180
+EMS_WAIT_INTERVAL=5
 SERVICE_NAME="labcheck"
 
 log() { echo -e "[$(date '+%H:%M:%S')] $*"; }
@@ -114,19 +117,44 @@ START_TIME="$(date +%s)"
 # сервер SoftWLC развёрнут и уже запущен. Приложение проверки подключается
 # к базам данных SoftWLC (wireless, radius) в MySQL на localhost, поэтому
 # SoftWLC должен быть установлен и доступен до установки labcheck.
-if ! command -v ss >/dev/null 2>&1; then
-    fail "Не найдена утилита ss для проверки EMS-порта SoftWLC.
+softwlc_ems_is_listening() {
+    ss -ltn 2>/dev/null | grep -qE ":${EMS_PORT}([[:space:]]|$)"
+}
+
+wait_for_softwlc_ems() {
+    if ! command -v ss >/dev/null 2>&1; then
+        fail "Не найдена утилита ss для проверки EMS-порта SoftWLC.
 Установите пакет iproute2 и повторите запуск сценария."
-elif ! ss -ltn 2>/dev/null | grep -qE ':8080([[:space:]]|$)'; then
-    fail "Порт 8080 (EMS-сервер SoftWLC) не прослушивается.
+    fi
+
+    if softwlc_ems_is_listening; then
+        log " [OK] Порт ${EMS_PORT} (EMS-сервер SoftWLC) прослушивается."
+        return 0
+    fi
+
+    log "Порт ${EMS_PORT} (EMS-сервер SoftWLC) пока не прослушивается."
+    log "Ожидание запуска EMS до ${EMS_WAIT_TIMEOUT} с..."
+
+    local waited=0
+    while (( waited < EMS_WAIT_TIMEOUT )); do
+        sleep "${EMS_WAIT_INTERVAL}"
+        waited=$((waited + EMS_WAIT_INTERVAL))
+
+        if softwlc_ems_is_listening; then
+            log " [OK] EMS-сервер SoftWLC стал доступен через ${waited} с."
+            return 0
+        fi
+    done
+
+    fail "Порт ${EMS_PORT} (EMS-сервер SoftWLC) не прослушивается после ${EMS_WAIT_TIMEOUT} с ожидания.
 
 Labcheck зависит от баз данных SoftWLC (wireless, radius) на localhost,
 поэтому установка без работающего SoftWLC приведёт к нерабочему развёртыванию.
-Сначала установите и запустите SoftWLC, затем повторите запуск этого сценария.
+Сначала установите и запустите SoftWLC, дождитесь доступности EMS,
+затем повторите запуск этого сценария."
+}
 
-Если SoftWLC установлен, но EMS ещё запускается после перезагрузки,
-подождите несколько минут и повторите запуск."
-fi
+wait_for_softwlc_ems
 
 wait_for_apt
 log "Обновление списка пакетов..."
