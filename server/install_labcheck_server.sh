@@ -133,6 +133,15 @@ else
 fi
 log "Версии: node $(node -v), npm $(npm -v)"
 
+# Идемпотентность: если приложение уже развёрнуто, а новый источник
+# явно не задан (нет аргумента и переменной APP_URL), повторный запуск
+# переиспользует существующий /opt/labcheck/app.js без запроса источника.
+if [[ -z "$APP_SOURCE" && -z "$APP_URL" && -f "$APP_DIR/app.js" ]]; then
+    log "Приложение уже установлено: ${APP_DIR}/app.js — повторный запуск без замены кода."
+    log "Для обновления передайте новый источник: sudo $0 /путь/к/app.js либо APP_URL=http://<сервер>/app.js"
+    APP_SOURCE="$APP_DIR/app.js"
+fi
+
 # --- 3. Размещение приложения ---------------------------------------
 # Если источник приложения не задан заранее (аргументом или переменной
 # APP_URL) — предлагаем выбрать способ доставки интерактивно. Меню
@@ -194,8 +203,12 @@ fi
 mkdir -p "$APP_DIR"
 if [[ -n "$APP_SOURCE" ]]; then
     [[ -f "$APP_SOURCE" ]] || fail "Файл приложения не найден: $APP_SOURCE"
-    log "Копирование приложения из ${APP_SOURCE} в ${APP_DIR}..."
-    cp "$APP_SOURCE" "$APP_DIR/app.js"
+    if [[ "$APP_SOURCE" -ef "$APP_DIR/app.js" ]]; then
+        log "Используется уже размещённое приложение: ${APP_DIR}/app.js"
+    else
+        log "Копирование приложения из ${APP_SOURCE} в ${APP_DIR}..."
+        cp "$APP_SOURCE" "$APP_DIR/app.js"
+    fi
 elif [[ -n "$APP_URL" ]]; then
     log "Загрузка приложения из внутреннего источника: ${APP_URL}"
     wget -O "$APP_DIR/app.js" "$APP_URL" \
@@ -208,10 +221,14 @@ else
 fi
 
 # --- 4. Установка зависимостей --------------------------------------
-log "Установка npm-зависимостей..."
 cd "$APP_DIR"
-[[ -f package.json ]] || npm init -y >/dev/null
-npm install express bcrypt express-session mysql2
+if [[ -d "$APP_DIR/node_modules/express" && -d "$APP_DIR/node_modules/mysql2" ]]; then
+    log "npm-зависимости уже установлены, пропуск."
+else
+    log "Установка npm-зависимостей..."
+    [[ -f package.json ]] || npm init -y >/dev/null
+    npm install express bcrypt express-session mysql2
+fi
 
 # --- 5. Создание systemd-службы -------------------------------------
 log "Создание службы systemd ${SERVICE_NAME}..."
