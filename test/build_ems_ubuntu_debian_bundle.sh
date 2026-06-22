@@ -13,8 +13,6 @@
 #   install_ems_ubuntu-debian.sh
 #   deps/jdk17-linux-x64.tar.gz
 #   deps/icedtea-web-1.8.8.linux.bin.zip
-#   SHA256SUMS
-#   README_OFFLINE_UBUNTU_DEBIAN.txt
 #
 # Переменные окружения, которые можно переопределить при запуске:
 #   JDK_URL=...       — URL архива JDK 17;
@@ -78,8 +76,6 @@ download_file() {
   || fail "Сборщик готовит комплект с JDK/IcedTea-Web для x86_64/amd64. Текущая архитектура: $(uname -m)."
 
 command -v tar >/dev/null 2>&1 || fail "Не найдена утилита tar. Установите tar и повторите сборку."
-command -v sha256sum >/dev/null 2>&1 || fail "Не найдена утилита sha256sum. Установите coreutils и повторите сборку."
-
 # Разрешаем файлы с суффиксами вида install_ems_ubuntu-debian(6).sh,
 # если они были скачаны из браузера/мессенджера. В архив кладём нормальное имя.
 if [[ ! -f "$INSTALL_SCRIPT" ]]; then
@@ -113,67 +109,12 @@ else
   log "unzip не найден — пропуск глубокой проверки zip-архива."
 fi
 
-cat > "${KIT}/README_OFFLINE_UBUNTU_DEBIAN.txt" <<'README'
-Офлайн-комплект EMS-клиента SoftWLC для Ubuntu/Debian
-=====================================================
-
-Состав:
-  install_ems_ubuntu-debian.sh          — клиентский установщик для Ubuntu/Debian;
-  deps/jdk17-linux-x64.tar.gz           — JDK 17 для Linux x64;
-  deps/icedtea-web-1.8.8.linux.bin.zip  — IcedTea-Web 1.8.8;
-  SHA256SUMS                            — контрольные суммы файлов комплекта.
-
-Как использовать на клиентской машине Ubuntu/Debian:
-
-1. Распаковать архив:
-     tar -xzf ems-ubuntu-debian-client-offline.tar.gz
-     cd <каталог_распаковки>
-
-2. При необходимости проверить контрольные суммы:
-     sha256sum -c SHA256SUMS
-
-3. Запустить установку:
-     sudo bash install_ems_ubuntu-debian.sh
-
-   Либо сразу передать адрес EMS-сервера SoftWLC:
-     sudo bash install_ems_ubuntu-debian.sh http://<ip-сервера>:8080/ems/jws
-
-4. В меню выбора режима установки выбрать:
-     2) Офлайн — установка из локальных файлов
-
-5. Когда сценарий попросит путь к архиву JDK 17, указать:
-     deps
-   либо конкретный файл:
-     deps/jdk17-linux-x64.tar.gz
-
-6. Когда сценарий попросит путь к архиву IcedTea-Web, указать:
-     deps
-   либо конкретный файл:
-     deps/icedtea-web-1.8.8.linux.bin.zip
-
-Примечания:
-  - Комплект рассчитан на клиентские машины x86-64/amd64.
-  - В офлайн-режиме на клиентской ОС уже должны быть доступны tar, unzip и wget.
-  - JNLP-файл всё равно загружается с EMS-сервера SoftWLC по локальной сети.
-README
-
-log "Расчёт SHA256SUMS..."
-(
-  cd "$KIT"
-  sha256sum \
-    install_ems_ubuntu-debian.sh \
-    "deps/${JDK_FILE}" \
-    "deps/${ICEDTEA_FILE}" \
-    README_OFFLINE_UBUNTU_DEBIAN.txt > SHA256SUMS
-)
 
 log "Проверка состава комплекта..."
 for required in \
   "${KIT}/install_ems_ubuntu-debian.sh" \
   "${KIT}/deps/${JDK_FILE}" \
-  "${KIT}/deps/${ICEDTEA_FILE}" \
-  "${KIT}/SHA256SUMS" \
-  "${KIT}/README_OFFLINE_UBUNTU_DEBIAN.txt"; do
+  "${KIT}/deps/${ICEDTEA_FILE}"; do
   [[ -s "$required" ]] || fail "В комплекте отсутствует или пустой файл: ${required#${KIT}/}"
 done
 
